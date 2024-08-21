@@ -1,0 +1,187 @@
+import random
+import uuid
+from collections import deque
+
+# Classe para representar um processo (personagem ou ação no RPG)
+class Process:
+    def __init__(self, pid, name, instructions):
+        self.pid = pid  # Identificador do Processo
+        self.name = name  # Nome do personagem ou ação
+        self.state = 'pronto'  # Estado inicial do processo
+        self.program_counter = 0  # Contador de Programa (PC)
+        self.registers = {"HP": 100, "MP": 50}  # Registradores de status (HP e MP)
+        self.memory_allocated = []  # Memória alocada (pode ser usada para inventário, etc.)
+        self.instructions = instructions  # Ações do personagem
+
+    def execute_instruction(self):
+        if self.program_counter < len(self.instructions):
+            instruction = self.instructions[self.program_counter]
+            self.program_counter += 1
+            return instruction
+        else:
+            self.state = 'terminado'
+            return None
+
+    def __str__(self):
+        return (f"PID: {self.pid}, Nome: {self.name}, Estado: {self.state}, PC: {self.program_counter}, "
+                f"Memória: {self.memory_allocated}, HP: {self.registers['HP']}, MP: {self.registers['MP']}")
+
+# Classe para gerenciar o escalonamento de processos
+class Scheduler:
+    def __init__(self, algorithm='FIFO', time_slice=2):
+        self.ready_queue = deque()  # Fila de processos prontos
+        self.algorithm = algorithm  # Algoritmo de escalonamento
+        self.time_slice = time_slice  # Fatia de tempo para Round Robin
+
+    def add_process(self, process):
+        self.ready_queue.append(process)
+        print(f"{process.name} adicionado à fila de prontos.")
+
+    def schedule(self):
+        if not self.ready_queue:
+            print("Nenhum personagem pronto para ser escalonado.")
+            return None
+        
+        if self.algorithm == 'FIFO':
+            return self.ready_queue.popleft()
+        elif self.algorithm == 'Round Robin':
+            process = self.ready_queue.popleft()
+            self.ready_queue.append(process)
+            return process
+        elif self.algorithm == 'SJF':
+            shortest_job = min(self.ready_queue, key=lambda p: len(p.instructions) - p.program_counter)
+            self.ready_queue.remove(shortest_job)
+            return shortest_job
+        else:
+            raise ValueError(f"Algoritmo de escalonamento {self.algorithm} não reconhecido.")
+
+# Classe para gerenciar processos com integração do escalonador
+class ProcessManagerWithScheduler:
+    def __init__(self, algorithm='FIFO', time_slice=2):
+        self.process_list = {}
+        self.scheduler = Scheduler(algorithm, time_slice)
+
+    def create_process(self, name, instructions):
+        pid = str(uuid.uuid4())  # Gera um PID único
+        new_process = Process(pid, name, instructions)
+        self.process_list[pid] = new_process
+        self.scheduler.add_process(new_process)
+        print(f"{name} criado com sucesso.")
+        return pid
+
+    def terminate_process(self, pid):
+        if pid in self.process_list:
+            self.process_list[pid].state = 'terminado'
+            print(f"Processo {pid} terminado.")
+        else:
+            print(f"Processo {pid} não encontrado.")
+
+    def block_process(self, pid):
+        if pid in self.process_list:
+            self.process_list[pid].state = 'bloqueado'
+            print(f"Processo {pid} bloqueado.")
+        else:
+            print(f"Processo {pid} não encontrado.")
+
+    def run_process(self, pid):
+        if pid in self.process_list:
+            process = self.process_list[pid]
+            if process.state == 'pronto':
+                process.state = 'executando'
+                while process.state == 'executando':
+                    instruction = process.execute_instruction()
+                    if instruction is None:
+                        print(f"{process.name} terminou todas as ações.")
+                        break
+                    print(f"{process.name} executando: {instruction}")
+                process.state = 'terminado'
+            else:
+                print(f"{process.name} não está pronto para execução.")
+        else:
+            print(f"Processo {pid} não encontrado.")
+
+    def run_all(self):
+        while True:
+            process = self.scheduler.schedule()
+            if not process:
+                break
+            self.run_process(process.pid)
+
+    def get_process_info(self, pid):
+        if pid in self.process_list:
+            process = self.process_list[pid]
+            return str(process)
+        else:
+            return f"Processo {pid} não encontrado."
+
+# Classe para simular a execução dos processos (VM)
+class VirtualMachine:
+    def __init__(self, process_manager):
+        self.process_manager = process_manager
+
+    def decode_and_execute(self, process, instruction):
+        # Decodificação e execução das instruções
+        if instruction.startswith("MOVE"):
+            direction = instruction.split()[1]
+            print(f"{process.name} move-se para {direction}.")
+        elif instruction.startswith("ATTACK"):
+            target = instruction.split()[1]
+            damage = random.randint(5, 20)
+            print(f"{process.name} ataca {target}, causando {damage} de dano.")
+        elif instruction.startswith("HEAL"):
+            amount = int(instruction.split()[1])
+            process.registers["HP"] += amount
+            print(f"{process.name} cura-se por {amount} pontos. HP = {process.registers['HP']}")
+        elif instruction.startswith("CAST"):
+            spell = instruction.split()[1]
+            mp_cost = random.randint(10, 25)
+            if process.registers["MP"] >= mp_cost:
+                process.registers["MP"] -= mp_cost
+                print(f"{process.name} lança {spell}, MP restante = {process.registers['MP']}")
+            else:
+                print(f"{process.name} tenta lançar {spell}, mas não tem MP suficiente.")
+        elif instruction == "HALT":
+            process.state = 'terminado'
+            print(f"{process.name} terminou seu turno.")
+        else:
+            print(f"{process.name}: Ação desconhecida '{instruction}'")
+
+    def run(self):
+        while True:
+            process = self.process_manager.scheduler.schedule()
+            if not process:
+                break
+
+            if process.state == 'pronto':
+                process.state = 'executando'
+
+            instructions_executed = 0
+            while instructions_executed < self.process_manager.scheduler.time_slice and process.state == 'executando':
+                instruction = process.execute_instruction()
+                if instruction:
+                    self.decode_and_execute(process, instruction)
+                    instructions_executed += 1
+                else:
+                    break
+
+            if process.state != 'terminado':
+                process.state = 'pronto'
+
+# Exemplo de Uso
+
+# Criando o gerenciador de processos com escalonador
+manager = ProcessManagerWithScheduler(algorithm='Round Robin', time_slice=2)
+
+# Criando alguns processos (personagens) com ações
+pid1 = manager.create_process('Guerreiro', ['MOVE norte', 'ATTACK Goblin', 'HALT'])
+pid2 = manager.create_process('Mago', ['CAST Fireball', 'HEAL 10', 'HALT'])
+pid3 = manager.create_process('Ladino', ['MOVE leste', 'ATTACK Orc', 'HALT'])
+
+# Criando e executando a VM
+vm = VirtualMachine(manager)
+vm.run()
+
+# Exibindo o estado final dos processos (personagens)
+print(manager.get_process_info(pid1))
+print(manager.get_process_info(pid2))
+print(manager.get_process_info(pid3))
